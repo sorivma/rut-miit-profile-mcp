@@ -1,0 +1,6 @@
+credentials.json
+state.json
+cabinet_cache.json
+browser_state.json
+__pycache__/
+*.pyc
