@@ -304,12 +304,12 @@ def build_schedule(timetable_data):
 TOOLS = [
     {
         "name": "miit_list_institutes",
-        "description": "List all institutes/academies at MIIT (RUT) university with their IDs and names.",
+        "description": "List all institutes/academies at RUT MIIT university. Returns id, name, courses_count and groups_count for each institute. Use this to discover what institutes exist before searching for groups.",
         "inputSchema": {"type": "object", "properties": {}, "required": []},
     },
     {
         "name": "miit_find_group",
-        "description": "Search for a student group by code (e.g. 'ВВП-111'). Returns institute, course, specialty, and timetable ID.",
+        "description": "Search for a student group by code (e.g. 'ВВП-111', 'УВП-311') across all institutes. Returns list of matches with: institute_id, institute_name, course, group_code, timetable_id, specialty.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -323,7 +323,7 @@ TOOLS = [
     },
     {
         "name": "miit_set_current_group",
-        "description": "Set the student's active group. The server remembers this and uses it as default. Also auto-infers the next-year group and stores it in state.",
+        "description": "Set the student's active group. The server stores this as default for other tools and auto-infers the next-year group. Returns current_group, institute, course, specialty, timetable_id, and next_year_group suggestion.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -337,12 +337,12 @@ TOOLS = [
     },
     {
         "name": "miit_get_current_group",
-        "description": "Get the stored student group state: current group, history of changes, and auto-inferred next-year group.",
+        "description": "Get stored group state: current_group, set_at timestamp, group_history (all previously set groups with institute/course/specialty), next_year_group auto-inference. Refreshes next-year prediction against live catalog.",
         "inputSchema": {"type": "object", "properties": {}, "required": []},
     },
     {
         "name": "miit_get_timetable",
-        "description": "Get the full schedule for a student group. Uses stored group if neither group_code nor timetable_id provided.",
+        "description": "Get the full weekly schedule for a student group. Returns group name, semester, date_range, timetable_id, and days[]. Each day contains date, day name, date_display, is_past flag, and lessons[]. Each lesson: time range, type (Лекция/Практика/...), subject, lecturers[{short_name, full_name, description}], rooms[{name, hint}], note. Uses stored group if no args given.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -352,7 +352,7 @@ TOOLS = [
                 },
                 "timetable_id": {
                     "type": "string",
-                    "description": "Numeric timetable ID. Optional.",
+                    "description": "Numeric timetable ID. Optional — auto-resolved from group_code.",
                 },
             },
             "required": [],
@@ -360,7 +360,7 @@ TOOLS = [
     },
     {
         "name": "miit_get_student_context",
-        "description": "Get full student context for lab report generation: institute name, group code, current semester, current disciplines and their teachers. Uses stored group if group_code not provided.",
+        "description": "Get student context for lab reports/coursework: institute name, institute_id, group, course, specialty, timetable_id, semester, date_range, and disciplines[{subject, type, teachers[]}]. Disciplines and teachers are extracted from the current timetable. Uses stored group if group_code not given.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -372,19 +372,21 @@ TOOLS = [
             "required": [],
         },
     },
-    # ── Cabinet / Personal Account tools ──
+    # ═══════════════════════════════════════════════════════════════
+    # Cabinet — Personal Account (ЛК РУТ МИИТ)
+    # ═══════════════════════════════════════════════════════════════
     {
         "name": "miit_sync_cabinet",
-        "description": "Sync all student cabinet data (profile, grades, portfolio) into local cache. Opens headless browser once, extracts everything, saves to cabinet_cache.json. Run this first before miit_get_profile/miit_get_grades.",
+        "description": "AUTH & SYNC ALL CABINET DATA. Opens headless browser, logs into rut-miit.ru/cabinet, extracts everything into cabinet_cache.json. Extracts: profile (9 fields), grades (all semesters), disciplines (with department + document URLs), study plan (specialty code, department, PDFs), education options, contracts/orders availability. Takes ~25-30s. Run this FIRST before any miit_get_* or miit_fetch_document.",
         "inputSchema": {"type": "object", "properties": {}, "required": []},
     },
     {
         "name": "miit_login",
-        "description": "Alias for miit_sync_cabinet — authenticate and sync all cabinet data.",
+        "description": "Alias for miit_sync_cabinet. Authenticate and sync all cabinet data in one call.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "login": {"type": "string", "description": "Login (optional, uses credentials.json)"},
+                "login": {"type": "string", "description": "Login email (optional, uses credentials.json)"},
                 "password": {"type": "string", "description": "Password (optional, uses credentials.json)"},
             },
             "required": [],
@@ -392,35 +394,52 @@ TOOLS = [
     },
     {
         "name": "miit_logout",
-        "description": "End the cabinet session, clear browser state and cache.",
+        "description": "Clear browser session and delete cached cabinet data.",
         "inputSchema": {"type": "object", "properties": {}, "required": []},
     },
     {
         "name": "miit_get_profile",
-        "description": "Get personal data from student cabinet cache (full name, tab number, birth date, SNILS, INN, email). Requires prior miit_sync_cabinet.",
+        "description": "STUDENT PROFILE from cabinet cache. Returns: full_name, tab_number, gender, birth_date, age, birth_place, citizenship, snils, inn, email (@edu.rut-miit.ru). Requires prior miit_sync_cabinet.",
         "inputSchema": {"type": "object", "properties": {}, "required": []},
     },
     {
         "name": "miit_get_grades",
-        "description": "Get grades/session results from cabinet cache. Optionally filter by semester, discipline, or attestation type. Requires prior miit_sync_cabinet.",
+        "description": "ALL GRADES from cabinet cache. Each grade: semester (1/2/3/4), discipline, type (Экзамен/Зачет/Курсовой проект/Курсовая работа/Текущий контроль with subtype), teacher (full name), grade (5/4/3/зачёт). Supports filters: semester, discipline (partial match), attestation_type. Requires prior miit_sync_cabinet.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "semester": {"type": "string", "description": "Semester filter, e.g. '1' or '2'"},
-                "discipline": {"type": "string", "description": "Discipline name filter"},
-                "attestation_type": {"type": "string", "description": "Attestation type: Зачет, Экзамен, Курсовой проект, Текущий контроль"},
+                "semester": {"type": "string", "description": "Semester number: '1', '2', '3', '4'"},
+                "discipline": {"type": "string", "description": "Partial discipline name filter"},
+                "attestation_type": {"type": "string", "description": "Type filter: Зачет, Экзамен, Курсовой проект, Курсовая работа, Текущий контроль"},
             },
             "required": [],
         },
     },
     {
+        "name": "miit_get_disciplines",
+        "description": "DISCIPLINES WITH DOCUMENTS from cabinet cache. Each discipline: semester (1-4), discipline name, department (abbreviation like ЦТУТП, ИЯ, УТБиИС), documents[{name, url}] — syllabus PDF, annotation PDF, course materials DOCX. Filter by semester or discipline name. These document URLs can be downloaded via miit_fetch_document. Requires prior miit_sync_cabinet.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "semester": {"type": "string", "description": "Semester: '1', '2', '3', '4'"},
+                "discipline": {"type": "string", "description": "Partial discipline name filter"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "miit_get_study_plan",
+        "description": "STUDY PLAN from cabinet cache. Returns: specialty_code (e.g. 09.04.01), abbreviation (e.g. УВП), form (очная/...), qualification (Магистр/Бакалавр/...), department (full name), documents[] — syllabus PDFs, educational program PDFs, calendar schedule PDFs. Requires prior miit_sync_cabinet.",
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
         "name": "miit_get_portfolio",
-        "description": "List portfolio items from cabinet cache. Requires prior miit_sync_cabinet.",
+        "description": "PORTFOLIO items from cabinet cache. Returns list of {number, description, files[]}. Empty if no portfolio entries exist. Requires prior miit_sync_cabinet.",
         "inputSchema": {"type": "object", "properties": {}, "required": []},
     },
     {
         "name": "miit_upload_portfolio",
-        "description": "Upload a file to the student's portfolio. Uses live browser session (not cache).",
+        "description": "UPLOAD a file to the student's portfolio in the live cabinet. Opens browser, logs in, uploads file. Takes file_path (absolute path required) and optional description.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -428,6 +447,18 @@ TOOLS = [
                 "description": {"type": "string", "description": "Optional description for the portfolio entry"},
             },
             "required": ["file_path"],
+        },
+    },
+    {
+        "name": "miit_fetch_document",
+        "description": "DOWNLOAD a document from the cabinet by URL. Use this to fetch syllabus PDFs, course materials DOCX, or any file whose URL appears in miit_get_disciplines or miit_get_study_plan. Opens browser with auth session, downloads the file, saves to disk. Returns the local file path and size in bytes. The downloaded file can then be read by the agent to extract text/content.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "Full document URL from disciplines or study_plan cache (document.url field)"},
+                "output_path": {"type": "string", "description": "Optional: absolute path where to save the file. Auto-generated from URL if omitted."},
+            },
+            "required": ["url"],
         },
     },
 ]
@@ -699,6 +730,21 @@ def handle_tools_call(params, msg_id):
             )
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}]}
 
+        # ── miit_get_disciplines (cache) ──
+        elif tool_name == "miit_get_disciplines":
+            cab = _ensure_cabinet()
+            result = cab.get_disciplines(
+                semester=arguments.get("semester"),
+                discipline=arguments.get("discipline"),
+            )
+            return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}]}
+
+        # ── miit_get_study_plan (cache) ──
+        elif tool_name == "miit_get_study_plan":
+            cab = _ensure_cabinet()
+            result = cab.get_study_plan()
+            return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}]}
+
         # ── miit_get_portfolio (cache) ──
         elif tool_name == "miit_get_portfolio":
             cab = _ensure_cabinet()
@@ -711,6 +757,15 @@ def handle_tools_call(params, msg_id):
             result = cab.upload_portfolio(
                 file_path=arguments.get("file_path", ""),
                 description=arguments.get("description", ""),
+            )
+            return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}]}
+
+        # ── miit_fetch_document (live browser) ──
+        elif tool_name == "miit_fetch_document":
+            cab = _ensure_cabinet()
+            result = cab.fetch_document(
+                url=arguments.get("url", ""),
+                output_path=arguments.get("output_path"),
             )
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}]}
 
