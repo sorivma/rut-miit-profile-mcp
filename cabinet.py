@@ -203,6 +203,12 @@ class CabinetSession:
         self._creds = self._load_credentials()
 
     def _load_credentials(self):
+        # 1) Try environment variables first (centralized .env)
+        login = os.environ.get("MIIT_LOGIN", "").strip()
+        password = os.environ.get("MIIT_PASSWORD", "").strip()
+        if login and password:
+            return {"login": login, "password": password}
+        # 2) Fallback to credentials.json
         if os.path.exists(CREDS_FILE):
             with open(CREDS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
